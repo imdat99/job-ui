@@ -1,95 +1,17 @@
 import { Button, Modal } from '@douyinfe/semi-ui-19';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
-
-// Agent data with jobs
-const agentsData = [
-  {
-    id: 'worker-node-01',
-    status: 'Active',
-    cpu: 42,
-    mem: '1.2GB / 8GB',
-    memPercent: 15,
-    ip: '192.168.1.101',
-    uptime: '14d 3h 22m',
-    region: 'us-east-1',
-    jobs: [
-      { id: '#9281-AF', name: 'worker_video_transcode', status: 'Running', started: '2 mins ago' },
-      { id: '#9269-PM', name: 'cache_invalidation', status: 'Running', started: '45 mins ago' },
-    ],
-  },
-  {
-    id: 'worker-node-02',
-    status: 'Active',
-    cpu: 68,
-    mem: '3.5GB / 8GB',
-    memPercent: 44,
-    ip: '192.168.1.102',
-    uptime: '7d 12h 5m',
-    region: 'us-east-1',
-    jobs: [
-      { id: '#9275-XD', name: 'data_sync_pipeline', status: 'Running', started: '15 mins ago' },
-    ],
-  },
-  {
-    id: 'worker-node-03',
-    status: 'Active',
-    cpu: 25,
-    mem: '0.8GB / 8GB',
-    memPercent: 10,
-    ip: '192.168.1.103',
-    uptime: '21d 8h 45m',
-    region: 'us-east-1',
-    jobs: [
-      { id: '#9272-ZK', name: 'model_training_v2', status: 'Running', started: '1 hour ago' },
-    ],
-  },
-  {
-    id: 'worker-node-04',
-    status: 'Idle',
-    cpu: 5,
-    mem: '0.5GB / 8GB',
-    memPercent: 6,
-    ip: '192.168.1.104',
-    uptime: '2d 1h 12m',
-    region: 'us-east-1',
-    jobs: [],
-  },
-  {
-    id: 'worker-node-05',
-    status: 'Active',
-    cpu: 89,
-    mem: '6.1GB / 8GB',
-    memPercent: 76,
-    ip: '192.168.1.105',
-    uptime: '5d 6h 30m',
-    region: 'us-west-2',
-    jobs: [
-      { id: '#9285-PQ', name: 'batch_processing', status: 'Running', started: '5 mins ago' },
-      { id: '#9283-RS', name: 'report_generation', status: 'Running', started: '12 mins ago' },
-      { id: '#9280-TU', name: 'data_analysis', status: 'Running', started: '30 mins ago' },
-    ],
-  },
-  {
-    id: 'worker-node-06',
-    status: 'Offline',
-    cpu: 0,
-    mem: '0GB / 8GB',
-    memPercent: 0,
-    ip: '192.168.1.106',
-    uptime: '-',
-    region: 'eu-west-1',
-    jobs: [],
-  },
-];
+import { getAgents, type Agent, restartAgent } from '../../api';
 
 function getStatusStyle(status: string) {
   switch (status) {
     case 'Active':
+    case 'online': // Handle lower case from backend if needed
       return { color: '#10b981', bg: '#ecfdf5' };
     case 'Idle':
       return { color: '#3b82f6', bg: '#eff6ff' };
     case 'Offline':
+    case 'offline':
       return { color: '#6b7280', bg: '#f3f4f6' };
     default:
       return { color: '#6b7280', bg: '#f3f4f6' };
@@ -97,7 +19,7 @@ function getStatusStyle(status: string) {
 }
 
 interface AgentModalProps {
-  agent: typeof agentsData[0] | null;
+  agent: Agent | null;
   visible: boolean;
   onClose: () => void;
 }
@@ -106,7 +28,23 @@ function AgentModal({ agent, visible, onClose }: AgentModalProps) {
   if (!agent) return null;
 
   const statusStyle = getStatusStyle(agent.status);
-  const cpuColor = agent.cpu > 80 ? '#ef4444' : agent.cpu > 50 ? '#f59e0b' : '#0f172a';
+  // Mock CPU/Mem for now as backend doesn't provide real-time stats in Agent struct yet
+  // Or we can add it to the struct later. For now, display standard or parse from CustomLabels if available?
+  // The current Agent struct has Capacity.
+  const cpu = 0; // Placeholder
+  const memPercent = 0; // Placeholder
+  const cpuColor = cpu > 80 ? '#ef4444' : cpu > 50 ? '#f59e0b' : '#0f172a';
+
+  const handleRestart = async () => {
+    try {
+      // Assuming we have an endpoint for this, or just log for now
+      // The api.ts has restartAgent (implied to be added)
+      await restartAgent(agent.id.toString());
+      onClose();
+    } catch (e) {
+      console.error("Failed to restart agent", e);
+    }
+  };
 
   return (
     <Modal
@@ -115,7 +53,7 @@ function AgentModal({ agent, visible, onClose }: AgentModalProps) {
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Close</Button>
-          <Button type="primary" theme="solid" onClick={() => {}}>
+          <Button type="primary" theme="solid" onClick={handleRestart}>
             Restart Agent
           </Button>
         </div>
@@ -124,27 +62,27 @@ function AgentModal({ agent, visible, onClose }: AgentModalProps) {
       bodyStyle={{ padding: '24px' }}
       title={
         <div className="flex items-center gap-3">
-          <div 
+          <div
             className="w-10 h-10 rounded-lg flex items-center justify-center"
             style={{ backgroundColor: statusStyle.bg }}
           >
-            <svg 
+            <svg
               className="w-5 h-5"
               style={{ color: statusStyle.color }}
-              fill="none" 
-              stroke="currentColor" 
+              fill="none"
+              stroke="currentColor"
               viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
             </svg>
           </div>
           <div>
-            <div className="text-lg font-semibold text-slate-900">{agent.id}</div>
-            <span 
+            <div className="text-lg font-semibold text-slate-900">{agent.name}</div>
+            <span
               className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold"
               style={{ backgroundColor: statusStyle.bg, color: statusStyle.color }}
             >
-              <span 
+              <span
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: statusStyle.color, animation: agent.status === 'Active' ? 'pulse 1.5s infinite' : 'none' }}
               ></span>
@@ -161,33 +99,33 @@ function AgentModal({ agent, visible, onClose }: AgentModalProps) {
           <div className="text-xs text-slate-500 mb-1">CPU</div>
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-slate-200 h-2 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${agent.cpu}%`, backgroundColor: cpuColor }}
+                style={{ width: `${cpu}%`, backgroundColor: cpuColor }}
               />
             </div>
-            <span className="text-sm font-semibold text-slate-900">{agent.cpu}%</span>
+            <span className="text-sm font-semibold text-slate-900">{cpu}%</span>
           </div>
         </div>
         <div className="bg-slate-50 rounded-lg p-4">
           <div className="text-xs text-slate-500 mb-1">Memory</div>
           <div className="flex items-center gap-2">
             <div className="flex-1 bg-slate-200 h-2 rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-slate-900 rounded-full transition-all duration-500"
-                style={{ width: `${agent.memPercent}%` }}
+                style={{ width: `${memPercent}%` }}
               />
             </div>
-            <span className="text-sm font-semibold text-slate-900">{agent.memPercent}%</span>
+            <span className="text-sm font-semibold text-slate-900">{memPercent}%</span>
           </div>
         </div>
         <div className="bg-slate-50 rounded-lg p-4">
-          <div className="text-xs text-slate-500 mb-1">IP Address</div>
-          <div className="font-mono text-sm text-slate-900">{agent.ip}</div>
+          <div className="text-xs text-slate-500 mb-1">Backend</div>
+          <div className="font-mono text-sm text-slate-900">{agent.backend}</div>
         </div>
         <div className="bg-slate-50 rounded-lg p-4">
-          <div className="text-xs text-slate-500 mb-1">Uptime</div>
-          <div className="text-sm font-semibold text-slate-900">{agent.uptime}</div>
+          <div className="text-xs text-slate-500 mb-1">Last Heartbeat</div>
+          <div className="text-sm font-semibold text-slate-900">{agent.last_heartbeat ? new Date(agent.last_heartbeat).toLocaleTimeString() : '-'}</div>
         </div>
       </div>
 
@@ -198,58 +136,54 @@ function AgentModal({ agent, visible, onClose }: AgentModalProps) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
           <span className="text-sm font-semibold text-slate-900">
-            Running Jobs ({agent.jobs.length})
+            Capacity ({agent.capacity})
           </span>
         </div>
-        
-        {agent.jobs.length > 0 ? (
-          <div className="space-y-2">
-            {agent.jobs.map((job) => (
-              <div key={job.id} className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-sm text-blue-600">{job.id}</span>
-                  <span className="font-medium text-slate-900">{job.name}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-semibold">
-                    <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse"></span>
-                    {job.status}
-                  </span>
-                  <span className="text-sm text-slate-500">{job.started}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-sm text-slate-500 italic py-4 text-center bg-slate-50 rounded-lg">
-            No jobs running on this agent
-          </div>
-        )}
+
+        <div className="text-sm text-slate-500 italic py-4 text-center bg-slate-50 rounded-lg">
+          Job list per agent not yet implemented in backend API
+        </div>
       </div>
     </Modal>
   );
 }
 
 export default function AgentPool() {
-  const [selectedAgent, setSelectedAgent] = useState<typeof agentsData[0] | null>(null);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [sortBy, setSortBy] = useState<'name' | 'status' | 'cpu'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'status'>('name');
 
-  const activeAgents = agentsData.filter(a => a.status === 'Active').length;
-  const idleAgents = agentsData.filter(a => a.status === 'Idle').length;
-  const offlineAgents = agentsData.filter(a => a.status === 'Offline').length;
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const data = await getAgents();
+        setAgents(data);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
-  const sortedAgents = [...agentsData].sort((a, b) => {
-    if (sortBy === 'name') return a.id.localeCompare(b.id);
+  const activeAgents = agents.filter(a => a.status === 'Active').length;
+  // Backend might not return Idle/Offline status explicitly yet, usually just presence or last heartbeat check.
+  // Assuming 'Active' is the main status for now.
+  const idleAgents = agents.length - activeAgents;
+  const offlineAgents = 0; // Placeholder until backend supports history
+
+  const sortedAgents = [...agents].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
     if (sortBy === 'status') {
       const statusOrder = { 'Active': 0, 'Idle': 1, 'Offline': 2 };
-      return statusOrder[a.status as keyof typeof statusOrder] - statusOrder[b.status as keyof typeof statusOrder];
+      return (statusOrder[a.status as keyof typeof statusOrder] ?? 3) - (statusOrder[b.status as keyof typeof statusOrder] ?? 3);
     }
-    if (sortBy === 'cpu') return b.cpu - a.cpu;
     return 0;
   });
 
-  const handleAgentClick = (agent: typeof agentsData[0]) => {
+  const handleAgentClick = (agent: Agent) => {
     setSelectedAgent(agent);
     setModalVisible(true);
   };
@@ -280,7 +214,7 @@ export default function AgentPool() {
             </div>
             <div>
               <div className="text-2xl font-bold text-slate-900">{idleAgents}</div>
-              <div className="text-sm text-slate-500">Idle</div>
+              <div className="text-sm text-slate-500">Total/Idle</div>
             </div>
           </div>
         </div>
@@ -304,14 +238,13 @@ export default function AgentPool() {
         <h2 className="text-lg font-semibold text-slate-900">Agent Pool</h2>
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-500">Sort by:</span>
-          <select 
-            value={sortBy} 
-            onChange={(e) => setSortBy(e.target.value as 'name' | 'status' | 'cpu')}
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'name' | 'status')}
             className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
           >
             <option value="name">Name</option>
             <option value="status">Status</option>
-            <option value="cpu">CPU Usage</option>
           </select>
         </div>
       </div>
@@ -321,54 +254,52 @@ export default function AgentPool() {
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Agent</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Agent Name</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">CPU</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Memory</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">IP Address</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Uptime</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Jobs</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Platform</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Capacity</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Backend</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Heartbeat</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {sortedAgents.map((agent) => {
               const statusStyle = getStatusStyle(agent.status);
-              const cpuColor = agent.cpu > 80 ? '#ef4444' : agent.cpu > 50 ? '#f59e0b' : '#0f172a';
 
               return (
-                <tr 
-                  key={agent.id} 
+                <tr
+                  key={agent.id}
                   className="hover:bg-slate-50/50 transition-colors cursor-pointer"
                   onClick={() => handleAgentClick(agent)}
                 >
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <div 
+                      <div
                         className="w-8 h-8 rounded-lg flex items-center justify-center"
                         style={{ backgroundColor: statusStyle.bg }}
                       >
-                        <svg 
+                        <svg
                           className="w-4 h-4"
                           style={{ color: statusStyle.color }}
-                          fill="none" 
-                          stroke="currentColor" 
+                          fill="none"
+                          stroke="currentColor"
                           viewBox="0 0 24 24"
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
                         </svg>
                       </div>
                       <div>
-                        <div className="font-medium text-slate-900">{agent.id}</div>
-                        <div className="text-xs text-slate-500">{agent.region}</div>
+                        <div className="font-medium text-slate-900">{agent.name}</div>
+                        <div className="text-xs text-slate-500">{agent.id}</div>
                       </div>
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <span 
+                    <span
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
                       style={{ backgroundColor: statusStyle.bg, color: statusStyle.color }}
                     >
-                      <span 
+                      <span
                         className="w-1.5 h-1.5 rounded-full"
                         style={{ backgroundColor: statusStyle.color, animation: agent.status === 'Active' ? 'pulse 1.5s infinite' : 'none' }}
                       ></span>
@@ -377,37 +308,19 @@ export default function AgentPool() {
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-16 bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${agent.cpu}%`, backgroundColor: cpuColor }}
-                        ></div>
-                      </div>
-                      <span className="text-sm font-medium text-slate-700 w-10">{agent.cpu}%</span>
+                      <span className="text-sm font-medium text-slate-700">{agent.platform}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-16 bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div className="h-full bg-slate-900 rounded-full transition-all duration-500" style={{ width: `${agent.memPercent}%` }}></div>
-                      </div>
-                      <span className="text-sm text-slate-500 w-16">{agent.mem}</span>
+                      <span className="text-sm text-slate-500">{agent.capacity}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <span className="font-mono text-sm text-slate-600">{agent.ip}</span>
+                    <span className="font-mono text-sm text-slate-600">{agent.backend}</span>
                   </td>
                   <td className="px-4 py-4">
-                    <span className="text-sm text-slate-600">{agent.uptime}</span>
-                  </td>
-                  <td className="px-4 py-4">
-                    {agent.jobs.length > 0 ? (
-                      <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-sm font-medium">
-                        {agent.jobs.length} running
-                      </span>
-                    ) : (
-                      <span className="text-sm text-slate-400">-</span>
-                    )}
+                    <span className="text-sm text-slate-600">{agent.last_heartbeat ? new Date(agent.last_heartbeat).toLocaleString() : '-'}</span>
                   </td>
                 </tr>
               );
@@ -417,13 +330,13 @@ export default function AgentPool() {
       </div>
 
       {/* Modal */}
-      <AgentModal 
-        agent={selectedAgent} 
-        visible={modalVisible} 
+      <AgentModal
+        agent={selectedAgent}
+        visible={modalVisible}
         onClose={() => {
           setModalVisible(false);
           setSelectedAgent(null);
-        }} 
+        }}
       />
     </Layout>
   );

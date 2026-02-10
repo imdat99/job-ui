@@ -1,92 +1,8 @@
 import { Link, useParams } from 'react-router';
+import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
-
-// Job data with logs
-const jobsData: Record<string, {
-  id: string;
-  displayId: string;
-  name: string;
-  status: string;
-  agent: string;
-  started: string;
-  progress: number;
-  logs: { time: string; message: string }[];
-}> = {
-  '9281-AF': {
-    id: '9281-AF',
-    displayId: '#9281-AF',
-    name: 'worker_video_transcode',
-    status: 'Running',
-    agent: 'agent-node-01',
-    started: '2 mins ago',
-    progress: 45,
-    logs: [
-      { time: '09:28:15', message: 'Job started' },
-      { time: '09:28:16', message: 'Loading video file: input.mp4' },
-      { time: '09:28:17', message: 'Transcoding: 45% complete' },
-      { time: '09:28:18', message: 'Output: output_1080p.mp4' },
-    ],
-  },
-  '9278-BC': {
-    id: '9278-BC',
-    displayId: '#9278-BC',
-    name: 'db_daily_migration',
-    status: 'Pending',
-    agent: '--',
-    started: 'Waiting...',
-    progress: 0,
-    logs: [
-      { time: '09:25:00', message: 'Job queued' },
-      { time: '09:25:01', message: 'Waiting for available agent' },
-    ],
-  },
-  '9275-XD': {
-    id: '9275-XD',
-    displayId: '#9275-XD',
-    name: 'data_sync_pipeline',
-    status: 'Running',
-    agent: 'agent-node-02',
-    started: '15 mins ago',
-    progress: 78,
-    logs: [
-      { time: '09:13:22', message: 'Job started' },
-      { time: '09:13:23', message: 'Connecting to source database...' },
-      { time: '09:13:24', message: 'Syncing tables: users, orders, products' },
-      { time: '09:13:25', message: 'Sync progress: 78%' },
-    ],
-  },
-  '9272-ZK': {
-    id: '9272-ZK',
-    displayId: '#9272-ZK',
-    name: 'model_training_v2',
-    status: 'Running',
-    agent: 'agent-node-03',
-    started: '1 hour ago',
-    progress: 92,
-    logs: [
-      { time: '08:28:10', message: 'Job started' },
-      { time: '08:28:11', message: 'Loading training data...' },
-      { time: '08:28:12', message: 'Epoch 1/10 completed' },
-      { time: '08:28:13', message: 'Epoch 10/10 completed' },
-      { time: '08:28:14', message: 'Final accuracy: 94.5%' },
-    ],
-  },
-  '9269-PM': {
-    id: '9269-PM',
-    displayId: '#9269-PM',
-    name: 'cache_invalidation',
-    status: 'Completed',
-    agent: 'agent-node-01',
-    started: '2 hours ago',
-    progress: 100,
-    logs: [
-      { time: '07:28:00', message: 'Job started' },
-      { time: '07:28:01', message: 'Invalidating cache keys...' },
-      { time: '07:28:02', message: 'Cleared 1,234 cache entries' },
-      { time: '07:28:03', message: 'Job completed successfully' },
-    ],
-  },
-};
+import { getJob, getJobLogs, cancelJob, type Job } from '../../api';
+import { useMqttEvent } from '../../mqtt';
 
 function getStatusStyle(status: string) {
   switch (status) {
@@ -96,6 +12,8 @@ function getStatusStyle(status: string) {
       return { bg: 'bg-amber-50', text: 'text-amber-700', dot: 'bg-amber-500' };
     case 'Completed':
       return { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' };
+    case 'Failed':
+      return { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' };
     default:
       return { bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400' };
   }
@@ -103,13 +21,92 @@ function getStatusStyle(status: string) {
 
 export default function JobDetail() {
   const { jobId } = useParams();
-  const job = jobId ? jobsData[jobId] : null;
+  const [job, setJob] = useState<Job | null>(null);
+  const [logs, setLogs] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  if (!job) {
+  useEffect(() => {
+    if (!jobId) return;
+
+    const fetchData = async () => {
+      try {
+        const j = await getJob(jobId);
+        setJob(j);
+        if (j) {
+          const l = await getJobLogs(jobId);
+          setLogs(l);
+        } else {
+          setError('Job not found');
+        }
+      } catch (e) {
+        console.error(e);
+        setError('Failed to load job');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    // Poll for logs if running?
+    const interval = setInterval(() => {
+      if (job && job.status === 'Running') {
+        getJobLogs(jobId).then(setLogs).catch(console.error);
+        getJob(jobId).then(j => j && setJob(j)).catch(console.error);
+      }
+    }, 5000); // Reduce polling frequency since we have MQTT
+
+    return () => clearInterval(interval);
+  }, [jobId, job?.status]); // Add job.status dependency to poll only when running roughly
+
+  // Subscribe to real-time logs
+  useMqttEvent(`picpic:job-log:${jobId}`, (data: any) => {
+    let line = '';
+    if (typeof data === 'string') line = data;
+    else if (data && data.message) line = data.message;
+    else if (data && data.content) line = data.content;
+
+    if (line) {
+      setLogs(prev => prev + (prev ? '\n' : '') + line);
+    }
+  });
+
+  // Also listen for status updates for this job
+  useMqttEvent('picpic:job-update', (data: any) => {
+    if (data && (data.id == jobId || data.job_id == jobId)) {
+      // Reload job info
+      getJob(jobId!).then(j => j && setJob(j));
+    }
+  });
+
+  const handleCancel = async () => {
+    if (!job) return;
+    try {
+      await cancelJob(job.id);
+      // Refresh
+      const updated = await getJob(job.id);
+      setJob(updated);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to cancel job');
+    }
+  };
+
+  if (loading) {
+    return (
+      <Layout title="Loading...">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-900"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (!job || error) {
     return (
       <Layout title="Job Not Found">
         <div className="text-center py-12">
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Job Not Found</h2>
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">{error || 'Job Not Found'}</h2>
           <Link to="/" className="text-blue-600 hover:text-blue-700">
             Back to Jobs
           </Link>
@@ -119,9 +116,16 @@ export default function JobDetail() {
   }
 
   const statusStyle = getStatusStyle(job.status);
+  // Parse logs
+  // Logs from backend are likely plain text lines.
+  const logLines = logs.split('\n').filter(Boolean).map(line => {
+    // Try to parse timestamp? For now just raw check
+    // Simple heuristic if line starts with timestamp like [2023...] or just raw
+    return { time: '', message: line };
+  });
 
   return (
-    <Layout title={job.name}>
+    <Layout title={`Job #${job.id}`}>
       {/* Breadcrumb */}
       <div className="mb-6">
         <Link to="/" className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-700 mb-4">
@@ -130,22 +134,27 @@ export default function JobDetail() {
           </svg>
           Back to Jobs
         </Link>
-        
+
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-3">
-              {job.name}
+              {job.docker_image}
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
                 <span className={`w-2 h-2 rounded-full ${statusStyle.dot} ${job.status === 'Running' ? 'animate-pulse' : ''}`}></span>
                 {job.status}
               </span>
             </h1>
-            <p className="text-slate-500 mt-1">Task ID: <span className="font-mono text-slate-700">{job.displayId}</span></p>
+            <p className="text-slate-500 mt-1">ID: <span className="font-mono text-slate-700">{job.id}</span></p>
           </div>
           <div className="flex gap-3">
-            <button className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              Cancel Job
-            </button>
+            {job.status === 'Running' && (
+              <button
+                onClick={handleCancel}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                Cancel Job
+              </button>
+            )}
             <button className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition-colors">
               Restart Job
             </button>
@@ -156,30 +165,27 @@ export default function JobDetail() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
-          <div className="text-sm text-slate-500 mb-2">Progress</div>
+          <div className="text-sm text-slate-500 mb-2">Duration</div>
+          {/* Mock duration */}
           <div className="flex items-center gap-3">
-            <div className="flex-1 bg-slate-100 h-3 rounded-full overflow-hidden">
-              <div 
-                className={`h-full rounded-full transition-all duration-500 ${
-                  job.progress === 100 ? 'bg-emerald-500' : 'bg-blue-500'
-                }`}
-                style={{ width: `${job.progress}%` }}
-              />
-            </div>
-            <span className="text-xl font-bold text-slate-900">{job.progress}%</span>
+            <span className="text-xl font-bold text-slate-900">
+              {job.t_end ?
+                (new Date(job.t_end).getTime() - new Date(job.t_start).getTime()) / 1000 + 's'
+                : 'Running...'}
+            </span>
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <div className="text-sm text-slate-500 mb-2">Agent</div>
-          <div className="font-semibold text-slate-900">{job.agent}</div>
+          <div className="font-semibold text-slate-900">{job.agent_id}</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <div className="text-sm text-slate-500 mb-2">Started</div>
-          <div className="font-semibold text-slate-900">{job.started}</div>
+          <div className="font-semibold text-slate-900">{new Date(job.t_start).toLocaleString()}</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <div className="text-sm text-slate-500 mb-2">Logs</div>
-          <div className="font-semibold text-slate-900">{job.logs.length} entries</div>
+          <div className="font-semibold text-slate-900">{logLines.length} lines</div>
         </div>
       </div>
 
@@ -198,12 +204,15 @@ export default function JobDetail() {
         </div>
         <div className="bg-slate-900 p-6 max-h-96 overflow-y-auto">
           <div className="space-y-1 font-mono text-sm">
-            {job.logs.map((log, index) => (
+            {logLines.map((log, index) => (
               <div key={index} className="flex gap-4 hover:bg-slate-800/50 -mx-2 px-2 py-0.5 rounded">
                 <span className="text-slate-500 flex-shrink-0">{log.time}</span>
                 <span className="text-slate-300">{log.message}</span>
               </div>
             ))}
+            {logLines.length === 0 && (
+              <div className="text-slate-500 italic">No logs available</div>
+            )}
           </div>
         </div>
       </div>

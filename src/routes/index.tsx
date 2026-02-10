@@ -1,9 +1,9 @@
-import { createBrowserRouter, Outlet } from "react-router";
+import { createHashRouter, Outlet } from "react-router";
 import AgentPool from "./agent-pool";
 import JobDetail from "./job-detail";
 import Overview from "./overview";
 
-const router = createBrowserRouter([
+const router = createHashRouter([
   {
     path: "/",
     element: <Outlet />,
